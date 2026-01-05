@@ -8,7 +8,9 @@ Output JSON is designed to be consumed directly by a static HTML page (e.g., in 
 
 Notes (keep in code, not chat):
 - Tibia.com may limit how far months can be fetched; requesting too far may return the current month instead.
-- tibiapy uses lxml under the hood; on Linux you may need libxml/libxslt dev packages (GitHub Actions runners are OK).
+- tibia.py uses lxml under the hood; on Linux you may need libxml/libxslt dev packages (GitHub Actions runners are OK).
+- tibia.py v6+ removed get_url class methods from models; URL helpers live in tibiapy.urls.
+- tibia.py v6+ parsing is provided via tibiapy.parsers.* (e.g., EventScheduleParser).
 """
 
 from __future__ import annotations
@@ -30,6 +32,19 @@ try:
     from tibiapy import EventSchedule  # type: ignore
 except Exception:  # pragma: no cover
     from tibiapy.models import EventSchedule  # type: ignore
+
+
+# Optional helpers for newer tibia.py versions (v6+): URL functions moved to tibiapy.urls,
+# and parsing is available via tibiapy.parsers.*. See upstream changelog/docs.
+try:  # pragma: no cover
+    from tibiapy import urls as tibi_urls  # type: ignore
+except Exception:  # pragma: no cover
+    tibi_urls = None  # type: ignore
+
+try:  # pragma: no cover
+    from tibiapy.parsers import EventScheduleParser  # type: ignore
+except Exception:  # pragma: no cover
+    EventScheduleParser = None  # type: ignore
 
 
 try:
@@ -79,35 +94,53 @@ def slugify(s: str) -> str:
     return s.strip("-")
 
 
-def is_css_color(value: Optional[str]) -> bool:
-    if not value:
-        return False
-    v = value.strip()
-    # Hex, rgb/rgba, or basic keyword (we'll accept keywords; browser will ignore invalid)
-    if re.fullmatch(r"#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})", v):
-        return True
-    if v.lower().startswith(("rgb(", "rgba(", "hsl(", "hsla(")):
-        return True
-    # allow keywords like "green" etc
-    if re.fullmatch(r"[a-zA-Z]+", v):
-        return True
-    return False
+def normalize_color(color: Optional[str]) -> Optional[str]:
+    if not color:
+        return None
+    c = color.strip()
+    # Tibia's calendar uses things like "#xxxxxx" or named-ish; keep as-is
+    return c
 
 
-def categorize(title: str, description: str) -> str:
+def safe_iso_date(d: dt.date) -> str:
+    return d.isoformat()
+
+
+def daterange_inclusive(start: dt.date, end: dt.date) -> Iterable[dt.date]:
+    cur = start
+    while cur <= end:
+        yield cur
+        cur += dt.timedelta(days=1)
+
+
+def clamp_end(start: dt.date, end: dt.date) -> dt.date:
+    # ensure end >= start
+    if end < start:
+        return start
+    return end
+
+
+def category_hint(title: str, description: str) -> str:
+    """
+    Very lightweight categorization.
+    Keep it simple: the front-end can group by date anyway.
+    """
     t = title.lower()
-    d = (description or "").lower()
+    d = description.lower()
 
-    # Simple heuristics; tweak freely.
-    if "double xp" in t or "xp" in t or "skill" in t or "rapid respawn" in t:
+    if "double" in t or "xp" in t or "skill" in t:
         return "boost"
-    if "tibia anniversary" in t or "winterlight" in t or "halloween" in t or "christmas" in t or "new year" in t:
+    if "rapid" in t or "respawn" in t:
+        return "boost"
+    if "halloween" in t or "christmas" in t or "new year" in t or "valentine" in t:
         return "seasonal"
-    if "orc" in t or "devovorga" in t or "rise of" in t or "the first dragon" in t or "bewitched" in t:
-        return "worldevent"
+    if "orcsober" in t:
+        return "seasonal"
     if "full moon" in t:
-        return "cycle"
-    if "valentine" in t or "a piece of cake" in t or "spring into" in t or "colours of magic" in t:
+        return "moon"
+    if "rise of" in t:
+        return "event"
+    if "bewitched" in t:
         return "event"
     if "demon" in t or "exaltation" in t:
         return "event"
@@ -133,8 +166,30 @@ class Occurrence:
         return f"{slugify(self.title)}-{self.start.isoformat()}"
 
 
+def event_schedule_url(month: int, year: int) -> str:
+    """Return the Tibia.com Event Schedule URL for a given month/year across tibia.py versions."""
+    # tibia.py v6+: get_url removed from models; use urls.get_event_schedule_url or the model's .url property.
+    if tibi_urls is not None and hasattr(tibi_urls, "get_event_schedule_url"):
+        return tibi_urls.get_event_schedule_url(month=month, year=year)  # type: ignore[attr-defined]
+    if hasattr(EventSchedule, "get_url"):
+        return EventSchedule.get_url(month=month, year=year)  # type: ignore[attr-defined]
+    return EventSchedule(month=month, year=year).url
+
+
+def parse_event_schedule(html: str) -> "EventSchedule":
+    """Parse EventSchedule HTML into an EventSchedule instance across tibia.py versions."""
+    if EventScheduleParser is not None and hasattr(EventScheduleParser, "from_content"):
+        parsed = EventScheduleParser.from_content(html)  # type: ignore[attr-defined]
+        if parsed is None:
+            raise RuntimeError("EventScheduleParser returned None (invalid content?)")
+        return parsed
+    if hasattr(EventSchedule, "from_content"):
+        return EventSchedule.from_content(html)  # type: ignore[attr-defined]
+    raise RuntimeError("No supported EventSchedule parser found in this tibia.py version")
+
+
 def fetch_schedule(month: int, year: int, session: requests.Session, timeout: int, retries: int) -> "EventSchedule":
-    url = EventSchedule.get_url(month=month, year=year)
+    url = event_schedule_url(month=month, year=year)
 
     # Basic retry to handle transient failures / rate limiting.
     last_exc: Optional[Exception] = None
@@ -142,7 +197,7 @@ def fetch_schedule(month: int, year: int, session: requests.Session, timeout: in
         try:
             r = session.get(url, timeout=timeout)
             r.raise_for_status()
-            return EventSchedule.from_content(r.text)
+            return parse_event_schedule(r.text)
         except Exception as e:
             last_exc = e
             # small backoff
@@ -168,171 +223,172 @@ def build_occurrences(
 
         for day in range(1, dim + 1):
             d = dt.date(y, m, day)
-            day_events = sched.get_events_on(d)
 
-            if not day_events:
+            # Get events for the specific date.
+            # tibia.py schedules generally include previous/next month spillovers,
+            # so we only query within the "real" month range we built above.
+            # If the API provides a helper, great; otherwise just filter.
+            events = []
+            if hasattr(sched, "get_events_on"):
+                try:
+                    events = list(sched.get_events_on(d))  # type: ignore[attr-defined]
+                except Exception:
+                    events = []
+            if not events:
+                # Fallback: brute filter. Events are typically EventEntry with start_date/end_date.
+                if hasattr(sched, "events"):
+                    for e in sched.events:  # type: ignore[attr-defined]
+                        sd = getattr(e, "start_date", None)
+                        ed = getattr(e, "end_date", None)
+                        if isinstance(sd, dt.date) and isinstance(ed, dt.date):
+                            if sd <= d <= ed:
+                                events.append(e)
+
+            if not events:
                 continue
 
-            for e in day_events:
-                t = clean_title(getattr(e, "title", "") or "")
-                if not t:
+            for e in events:
+                title = clean_title(getattr(e, "title", "") or "")
+                if not title:
                     continue
+                desc = (getattr(e, "description", "") or "").strip()
+                color = normalize_color(getattr(e, "color", None))
 
-                desc = getattr(e, "description", "") or ""
-                col = getattr(e, "color", None)
+                active_dates.setdefault(title, set()).add(d)
 
-                active_dates.setdefault(t, set()).add(d)
+                # Keep the richest description we saw.
+                if title not in best_desc or (desc and len(desc) > len(best_desc[title])):
+                    best_desc[title] = desc
 
-                # prefer longest/most-informative description
-                if desc and (len(desc) > len(best_desc.get(t, ""))):
-                    best_desc[t] = desc
+                # Prefer a non-null color if present.
+                if title not in best_color or (best_color[title] is None and color is not None):
+                    best_color[title] = color
 
-                # keep first valid color we see (if any)
-                if t not in best_color:
-                    best_color[t] = col if is_css_color(col) else None
-                elif best_color[t] is None and is_css_color(col):
-                    best_color[t] = col
-
-                global_min = d if global_min is None else min(global_min, d)
-                global_max = d if global_max is None else max(global_max, d)
+                if global_min is None or d < global_min:
+                    global_min = d
+                if global_max is None or d > global_max:
+                    global_max = d
 
     if global_min is None or global_max is None:
         # No events at all
-        today = dt.date.today()
+        today = now_stockholm().date()
         return [], today, today
 
     occurrences: List[Occurrence] = []
+    for title, dates in active_dates.items():
+        sorted_dates = sorted(dates)
+        start = sorted_dates[0]
+        end = sorted_dates[-1]
 
-    for title, dateset in active_dates.items():
-        dates = sorted(dateset)
-        if not dates:
-            continue
+        # NOTE: Some events mark boundary days with '*' on Tibia.com (server save day).
+        # We keep inclusive ranges since UI can display markers if desired.
+        occurrences.append(
+            Occurrence(
+                title=title,
+                description=best_desc.get(title, ""),
+                color=best_color.get(title),
+                start=start,
+                end=clamp_end(start, end),
+            )
+        )
 
-        desc = best_desc.get(title, "")
-        col = best_color.get(title)
-
-        run_start = dates[0]
-        prev = dates[0]
-
-        for d in dates[1:]:
-            if d == prev + dt.timedelta(days=1):
-                prev = d
-                continue
-            # close run
-            occurrences.append(Occurrence(title=title, description=desc, color=col, start=run_start, end=prev))
-            run_start = d
-            prev = d
-
-        occurrences.append(Occurrence(title=title, description=desc, color=col, start=run_start, end=prev))
-
-    occurrences.sort(key=lambda o: (o.start, o.title.lower()))
+    # sort by start date then title
+    occurrences.sort(key=lambda o: (o.start, o.end, o.title.lower()))
     return occurrences, global_min, global_max
 
 
+def compute_happening_and_upcoming(
+    occurrences: List[Occurrence],
+    today: dt.date,
+    upcoming_days: int,
+) -> Tuple[List[Occurrence], List[Occurrence]]:
+    happening: List[Occurrence] = []
+    upcoming: List[Occurrence] = []
+
+    window_end = today + dt.timedelta(days=upcoming_days)
+
+    for o in occurrences:
+        if o.start <= today <= o.end:
+            happening.append(o)
+        elif today < o.start <= window_end:
+            upcoming.append(o)
+
+    happening.sort(key=lambda o: (o.end, o.start, o.title.lower()))
+    upcoming.sort(key=lambda o: (o.start, o.end, o.title.lower()))
+    return happening, upcoming
+
+
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Build TibiaSweden events.json from Tibia.com Event Calendar (via tibiapy).")
-    ap.add_argument("--start-year", type=int, default=None)
-    ap.add_argument("--start-month", type=int, default=None)
-    ap.add_argument("--months-forward", type=int, default=10, help="How many months ahead to attempt (default: 10).")
-    ap.add_argument("--months-back", type=int, default=1, help="How many months back to include (default: 1).")
-    ap.add_argument("--timeout", type=int, default=30)
-    ap.add_argument("--retries", type=int, default=4)
-    ap.add_argument("--out", type=str, default="docs/events.json")
-    ap.add_argument("--pretty", action="store_true")
-    args = ap.parse_args()
+    parser = argparse.ArgumentParser(description="Build TibiaSweden events.json from Tibia.com eventcalendar.")
+    parser.add_argument("--months-back", type=int, default=1, help="How many months back from current month.")
+    parser.add_argument("--months-forward", type=int, default=10, help="How many months forward from current month.")
+    parser.add_argument("--timeout", type=int, default=20, help="HTTP timeout seconds.")
+    parser.add_argument("--retries", type=int, default=3, help="Retries per month fetch.")
+    parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON with indent=2.")
+    parser.add_argument("--out", type=str, default="docs/events.json", help="Output file path.")
+    parser.add_argument(
+        "--upcoming-days",
+        type=int,
+        default=30,
+        help="How many days ahead to list as upcoming.",
+    )
+    args = parser.parse_args()
 
     now = now_stockholm()
-    base_year = args.start_year or now.year
-    base_month = args.start_month or now.month
+    year = now.year
+    month = now.month
 
-    # Build month list (back .. forward)
-    desired: List[Tuple[int, int]] = []
-    for delta in range(-args.months_back, args.months_forward + 1):
-        y, m = add_months(base_year, base_month, delta)
-        desired.append((y, m))
+    months: List[Tuple[int, int]] = []
+    for d in range(-args.months_back, args.months_forward + 1):
+        y, m = add_months(year, month, d)
+        months.append((y, m))
 
     session = requests.Session()
+    # Use a desktop UA (sometimes helps avoid weird Tibia.com behavior)
     session.headers.update(
         {
-            "User-Agent": "TibiaSweden-EventBot/1.0 (+https://tibiasweden.se)",
-            "Accept-Language": "en-US,en;q=0.9",
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/122.0 Safari/537.36"
         }
     )
 
     schedules: Dict[Tuple[int, int], "EventSchedule"] = {}
-    months_fetched: List[Tuple[int, int]] = []
+    for (y, m) in months:
+        schedules[(y, m)] = fetch_schedule(m, y, session=session, timeout=args.timeout, retries=args.retries)
 
-    last_seen: Optional[Tuple[int, int]] = None
+    occurrences, min_date, max_date = build_occurrences(schedules, months)
+    today = now.date()
 
-    for (y, m) in desired:
-        sched = fetch_schedule(m, y, session=session, timeout=args.timeout, retries=args.retries)
-
-        actual = (int(getattr(sched, "year", 0)), int(getattr(sched, "month", 0)))
-
-        # Tibia.com can return the current month if request is out-of-range.
-        # If we detect repetition/mismatch, stop fetching further months in that direction.
-        if actual != (y, m):
-            if last_seen == actual:
-                break
-            # If mismatch occurs, we can still keep the returned month once, but avoid looping.
-            if actual in schedules:
-                break
-
-        schedules[(actual[0], actual[1])] = sched
-        months_fetched.append(actual)
-        last_seen = actual
-
-    # De-duplicate while preserving order
-    seen = set()
-    months_fetched_unique: List[Tuple[int, int]] = []
-    for mm in months_fetched:
-        if mm in seen:
-            continue
-        seen.add(mm)
-        months_fetched_unique.append(mm)
-
-    if not months_fetched_unique:
-        out_path = Path(args.out)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "meta": {
-                "generatedAt": now_stockholm().isoformat(timespec="seconds"),
-                "timezone": STOCKHOLM_TZ,
-                "source": "Tibia.com Event Calendar",
-                "monthsFetched": [],
-                "range": {"from": None, "to": None},
-            },
-            "events": [],
-        }
-        out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2 if args.pretty else None), encoding="utf-8")
-        return 0
-
-    occurrences, dmin, dmax = build_occurrences(schedules, months_fetched_unique)
+    happening, upcoming = compute_happening_and_upcoming(occurrences, today=today, upcoming_days=args.upcoming_days)
 
     events_out = []
     for o in occurrences:
-        cat = categorize(o.title, o.description)
         events_out.append(
             {
                 "id": o.id,
                 "title": o.title,
+                "slug": slugify(o.title),
+                "category": category_hint(o.title, o.description),
+                "start": safe_iso_date(o.start),
+                "end": safe_iso_date(o.end),
                 "description": o.description,
-                "startDate": o.start.isoformat(),
-                "endDate": o.end.isoformat(),
                 "color": o.color,
-                "category": cat,
-                "tibiaUrl": EventSchedule.get_url(month=o.start.month, year=o.start.year),
+                "tibiaUrl": event_schedule_url(month=o.start.month, year=o.start.year),
             }
         )
 
     payload = {
         "meta": {
-            "generatedAt": now_stockholm().isoformat(timespec="seconds"),
+            "generatedAt": now.isoformat(),
             "timezone": STOCKHOLM_TZ,
-            "source": "Tibia.com Event Calendar",
-            "monthsFetched": [{"year": y, "month": m} for (y, m) in months_fetched_unique],
-            "range": {"from": dmin.isoformat(), "to": dmax.isoformat()},
+            "source": "tibia.com eventcalendar",
+            "range": {"min": min_date.isoformat(), "max": max_date.isoformat()},
+            "months": [{"year": y, "month": m, "url": event_schedule_url(month=m, year=y)} for (y, m) in months],
+            "upcomingDays": args.upcoming_days,
         },
+        "today": today.isoformat(),
+        "happeningNow": [o.id for o in happening],
+        "upcoming": [o.id for o in upcoming],
         "events": events_out,
     }
 

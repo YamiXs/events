@@ -32,6 +32,12 @@ jobs:
         with:
           python-version: "3.11"
 
+      # Helps lxml on Linux runners (safe to keep even if not strictly required)
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxml2-dev libxslt-dev
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
