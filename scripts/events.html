@@ -1,0 +1,692 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Event Calendar – TibiaSweden</title>
+  <style>
+    :root{
+      --bg:#4e0000;
+      --accent:#f90;
+      --text:#eee;
+      --muted:rgba(238,238,238,.75);
+      --panel:rgba(0,0,0,.30);
+      --panel2:rgba(0,0,0,.18);
+      --border:rgba(255,153,0,.28);
+      --border2:rgba(255,255,255,.10);
+      --shadow:0 10px 30px rgba(0,0,0,.35);
+      --radius:16px;
+    }
+
+    /* Full-width TS background */
+    .ts-bg{
+      min-height:100vh;
+      background:
+        radial-gradient(900px 500px at 18% 18%, rgba(255,153,0,.14), transparent 60%),
+        radial-gradient(900px 600px at 82% 24%, rgba(255,255,255,.08), transparent 55%),
+        linear-gradient(180deg, rgba(0,0,0,.30), rgba(0,0,0,.55)),
+        var(--bg);
+      padding:24px 12px 40px;
+      color:var(--text);
+      text-align:left; /* user preference */
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+    }
+
+    .ts-wrap{ max-width:1100px; margin:0 auto; }
+
+    .ts-hero{
+      display:flex; gap:14px; align-items:center;
+      padding:16px 18px;
+      border-radius:var(--radius);
+      background:linear-gradient(180deg, var(--panel), var(--panel2));
+      border:1px solid var(--border2);
+      border-left:6px solid var(--accent);
+      box-shadow:var(--shadow);
+    }
+
+    .ts-logo{
+      width:46px;height:46px; border-radius:12px;
+      background:rgba(255,153,0,.14);
+      border:1px solid rgba(255,153,0,.25);
+      display:flex; align-items:center; justify-content:center;
+      font-weight:800; color:var(--accent);
+      user-select:none;
+    }
+
+    .ts-title{ margin:0; font-size:20px; line-height:1.15; }
+    .ts-sub{ margin:4px 0 0; color:var(--muted); font-size:13px; }
+
+    .ts-grid{
+      display:grid;
+      grid-template-columns: 1fr;
+      gap:14px;
+      margin-top:14px;
+    }
+    @media (min-width:980px){
+      .ts-grid{ grid-template-columns: 1.1fr .9fr; }
+    }
+
+    .ts-card{
+      border-radius:var(--radius);
+      background:linear-gradient(180deg, var(--panel), var(--panel2));
+      border:1px solid var(--border2);
+      box-shadow:var(--shadow);
+      padding:14px;
+    }
+
+    .ts-h2{
+      margin:0 0 10px;
+      font-size:15px;
+      color:var(--accent);
+      letter-spacing:.2px;
+    }
+
+    .ts-controls{
+      display:flex; flex-wrap:wrap; gap:10px; align-items:center;
+      padding:10px 12px;
+      border-radius:14px;
+      background:rgba(0,0,0,.18);
+      border:1px solid rgba(255,255,255,.10);
+      margin-top:12px;
+    }
+
+    .ts-pill{
+      display:inline-flex; gap:8px; align-items:center;
+      padding:8px 10px;
+      border-radius:999px;
+      border:1px solid rgba(255,153,0,.22);
+      background:rgba(255,153,0,.08);
+      color:var(--text);
+      font-size:12px;
+      white-space:nowrap;
+    }
+
+    .ts-input{
+      flex:1;
+      min-width:220px;
+      padding:10px 12px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.14);
+      background:rgba(0,0,0,.25);
+      color:var(--text);
+      outline:none;
+    }
+    .ts-input::placeholder{ color:rgba(238,238,238,.55); }
+
+    .ts-btn{
+      padding:10px 12px;
+      border-radius:12px;
+      border:1px solid rgba(255,153,0,.28);
+      background:rgba(255,153,0,.12);
+      color:var(--text);
+      cursor:pointer;
+      user-select:none;
+    }
+    .ts-btn:hover{ background:rgba(255,153,0,.18); }
+
+    /* Lists */
+    .list{
+      display:flex; flex-direction:column; gap:10px;
+    }
+    .item{
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,.10);
+      background:rgba(0,0,0,.18);
+      padding:10px 12px;
+      display:flex; gap:10px; align-items:flex-start;
+      cursor:pointer;
+    }
+    .dot{
+      width:10px;height:10px;border-radius:999px;margin-top:4px;
+      background:var(--accent);
+      box-shadow:0 0 0 4px rgba(255,153,0,.12);
+      flex:0 0 auto;
+    }
+    .item h3{
+      margin:0;
+      font-size:13px;
+      color:var(--text);
+    }
+    .meta{
+      margin:4px 0 0;
+      font-size:12px;
+      color:var(--muted);
+      line-height:1.35;
+    }
+    .item a{ color:var(--accent); text-decoration:none; }
+    .item a:hover{ text-decoration:underline; }
+
+    /* Calendar */
+    .cal-head{
+      display:flex; justify-content:space-between; align-items:center; gap:10px;
+      margin-bottom:10px;
+    }
+    .cal-title{
+      font-weight:800;
+      letter-spacing:.2px;
+    }
+    .cal-nav{ display:flex; gap:8px; align-items:center; }
+
+    .calendar{
+      border-radius:16px;
+      overflow:hidden;
+      border:1px solid rgba(255,255,255,.12);
+      background:rgba(0,0,0,.18);
+    }
+
+    .dow{
+      display:grid;
+      grid-template-columns:repeat(7,1fr);
+      background:rgba(0,0,0,.22);
+      border-bottom:1px solid rgba(255,255,255,.10);
+      font-size:12px;
+      color:var(--muted);
+    }
+    .dow div{ padding:10px 10px; }
+
+    .grid{
+      display:grid;
+      grid-template-columns:repeat(7,1fr);
+    }
+
+    .cell{
+      min-height:96px;
+      border-right:1px solid rgba(255,255,255,.08);
+      border-bottom:1px solid rgba(255,255,255,.08);
+      padding:8px 8px 10px;
+      position:relative;
+    }
+    .cell:nth-child(7n){ border-right:none; }
+    .daynum{
+      font-size:12px;
+      color:var(--text);
+      opacity:.95;
+      font-weight:700;
+    }
+    .outmonth .daynum{ opacity:.45; }
+
+    .bars{
+      margin-top:6px;
+      display:flex; flex-direction:column; gap:4px;
+    }
+    .bar{
+      display:flex; align-items:center; gap:6px;
+      border-radius:999px;
+      padding:3px 8px;
+      font-size:11px;
+      line-height:1.2;
+      color:#fff;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      cursor:pointer;
+      border:1px solid rgba(255,255,255,.12);
+    }
+    .more{
+      margin-top:4px;
+      font-size:11px;
+      color:var(--accent);
+      cursor:pointer;
+      user-select:none;
+    }
+
+    /* Modal */
+    .modal-backdrop{
+      position:fixed; inset:0;
+      background:rgba(0,0,0,.70);
+      display:none;
+      align-items:center; justify-content:center;
+      padding:18px;
+      z-index:9999;
+    }
+    .modal{
+      width:min(720px, 100%);
+      border-radius:18px;
+      border:1px solid rgba(255,255,255,.14);
+      background:linear-gradient(180deg, rgba(0,0,0,.55), rgba(0,0,0,.35));
+      box-shadow:var(--shadow);
+      padding:14px;
+    }
+    .modal h3{ margin:0; font-size:16px; color:var(--accent); }
+    .modal p{ margin:8px 0 0; color:var(--text); font-size:13px; line-height:1.45; }
+    .modal .row{ margin-top:10px; display:flex; flex-wrap:wrap; gap:8px; }
+    .modal .close{ float:right; }
+    .modal .small{ font-size:12px; color:var(--muted); }
+
+    /* Category fallback colors (used when event.color is missing) */
+    .c-boost{ background:#1e7bff; }
+    .c-seasonal{ background:#2a8f2a; }
+    .c-worldevent{ background:#8c1b1b; }
+    .c-cycle{ background:#9b7b00; }
+    .c-event{ background:#6a2a8f; }
+    .c-misc{ background:#555; }
+  </style>
+</head>
+
+<body>
+  <div class="ts-bg">
+    <div class="ts-wrap">
+      <div class="ts-hero">
+        <div class="ts-logo">TS</div>
+        <div>
+          <h1 class="ts-title">Event Calendar</h1>
+          <div class="ts-sub">Pågår nu, kommande events och månadsvy (Tibia.com Event Calendar via Tibia.py).</div>
+        </div>
+      </div>
+
+      <div class="ts-controls">
+        <div class="ts-pill" id="pillTime">Tid: …</div>
+        <div class="ts-pill" id="pillUpdated">Uppdaterad: …</div>
+        <input class="ts-input" id="search" placeholder="Sök event (t.ex. Full Moon, Orcsoberfest, XP) …" />
+        <button class="ts-btn" id="btnToday">Gå till idag</button>
+      </div>
+
+      <div class="ts-grid">
+        <div class="ts-card">
+          <div class="cal-head">
+            <div class="cal-title" id="calTitle">…</div>
+            <div class="cal-nav">
+              <button class="ts-btn" id="prevMonth">« Föregående</button>
+              <button class="ts-btn" id="nextMonth">Nästa »</button>
+            </div>
+          </div>
+
+          <div class="calendar">
+            <div class="dow">
+              <div>Måndag</div><div>Tisdag</div><div>Onsdag</div><div>Torsdag</div><div>Fredag</div><div>Lördag</div><div>Söndag</div>
+            </div>
+            <div class="grid" id="calGrid"></div>
+          </div>
+
+          <div style="margin-top:10px;color:rgba(238,238,238,.70);font-size:12px;">
+            * Tibia.com markerar gränsdagar med “*” (start/slut vid server save). I denna vy visas eventens datumintervall (inkl. start/slutdag).
+          </div>
+        </div>
+
+        <div class="ts-card">
+          <h2 class="ts-h2">Pågår nu</h2>
+          <div class="list" id="listNow"></div>
+
+          <div style="height:10px;"></div>
+
+          <h2 class="ts-h2">Kommande (nästa 60 dagar)</h2>
+          <div class="list" id="listUpcoming"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal -->
+  <div class="modal-backdrop" id="modalBackdrop">
+    <div class="modal">
+      <button class="ts-btn close" id="modalClose">Stäng</button>
+      <h3 id="modalTitle">…</h3>
+      <div class="row">
+        <div class="ts-pill" id="modalDates">…</div>
+        <div class="ts-pill" id="modalStatus">…</div>
+        <a class="ts-pill" id="modalLink" href="#" target="_blank" rel="noopener">Öppna på Tibia.com</a>
+      </div>
+      <p id="modalDesc">…</p>
+      <div class="small" id="modalId" style="margin-top:10px;">…</div>
+    </div>
+  </div>
+
+  <script>
+    // -------------------------
+    // CONFIG
+    // -------------------------
+    // Byt till din riktiga JSON-länk (GitHub Pages rekommenderas för Webnode).
+    // Ex: https://yamixs.github.io/<repo>/events.json
+    const EVENTS_JSON_URL = "events.json";
+
+    // -------------------------
+    // Helpers
+    // -------------------------
+    const $ = (id) => document.getElementById(id);
+    const pad2 = (n) => String(n).padStart(2, "0");
+
+    function parseISODate(s){
+      const [y,m,d] = s.split("-").map(Number);
+      return new Date(y, m-1, d);
+    }
+
+    function toISODateLocal(d){
+      // Always format as YYYY-MM-DD in local time
+      const y = d.getFullYear();
+      const m = pad2(d.getMonth()+1);
+      const day = pad2(d.getDate());
+      return `${y}-${m}-${day}`;
+    }
+
+    function startOfDay(d){
+      return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    }
+
+    function daysBetween(a, b){
+      const ms = startOfDay(b) - startOfDay(a);
+      return Math.round(ms / 86400000);
+    }
+
+    function overlapsMonth(ev, year, monthIndex){
+      // monthIndex: 0..11
+      const mStart = new Date(year, monthIndex, 1);
+      const mEnd = new Date(year, monthIndex+1, 0); // last day
+      const s = parseISODate(ev.startDate);
+      const e = parseISODate(ev.endDate);
+      return (s <= mEnd) && (e >= mStart);
+    }
+
+    function isOngoing(ev, today){
+      const s = parseISODate(ev.startDate);
+      const e = parseISODate(ev.endDate);
+      return s <= today && today <= e;
+    }
+
+    function isUpcoming(ev, today, days=60){
+      const s = parseISODate(ev.startDate);
+      if (s <= today) return false;
+      const limit = new Date(today);
+      limit.setDate(limit.getDate() + days);
+      return s <= limit;
+    }
+
+    function fmtDateSV(d){
+      return new Intl.DateTimeFormat("sv-SE", { year:"numeric", month:"short", day:"numeric" }).format(d);
+    }
+
+    function categoryClass(cat){
+      switch((cat||"").toLowerCase()){
+        case "boost": return "c-boost";
+        case "seasonal": return "c-seasonal";
+        case "worldevent": return "c-worldevent";
+        case "cycle": return "c-cycle";
+        case "event": return "c-event";
+        default: return "c-misc";
+      }
+    }
+
+    function applyBarColor(el, ev){
+      if (ev.color && typeof ev.color === "string"){
+        el.style.background = ev.color;
+      } else {
+        el.classList.add(categoryClass(ev.category));
+      }
+    }
+
+    function openModal(ev, today){
+      $("modalTitle").textContent = ev.title;
+      const s = parseISODate(ev.startDate);
+      const e = parseISODate(ev.endDate);
+      $("modalDates").textContent = `${fmtDateSV(s)} – ${fmtDateSV(e)}`;
+
+      let status = "";
+      if (isOngoing(ev, today)){
+        const left = daysBetween(today, e);
+        status = left === 0 ? "Slutar idag" : `Slutar om ${left} dag(ar)`;
+      } else {
+        const until = daysBetween(today, s);
+        status = until === 0 ? "Startar idag" : `Startar om ${until} dag(ar)`;
+      }
+      $("modalStatus").textContent = status;
+
+      $("modalDesc").textContent = ev.description || "(Ingen beskrivning tillgänglig.)";
+      $("modalId").textContent = `ID: ${ev.id}`;
+
+      $("modalLink").href = ev.tibiaUrl || "https://www.tibia.com/news/?subtopic=eventcalendar";
+
+      $("modalBackdrop").style.display = "flex";
+    }
+
+    function closeModal(){
+      $("modalBackdrop").style.display = "none";
+    }
+
+    // -------------------------
+    // State
+    // -------------------------
+    const state = {
+      data: null,
+      events: [],
+      filteredEvents: [],
+      viewYear: null,
+      viewMonthIndex: null, // 0..11
+    };
+
+    function setTimePills(meta){
+      const now = new Date();
+      $("pillTime").textContent = `Tid: ${now.toLocaleString("sv-SE")} (lokal)`;
+      $("pillUpdated").textContent = `Uppdaterad: ${meta?.generatedAt || "okänd"}`;
+    }
+
+    function filterEvents(q){
+      const s = (q||"").trim().toLowerCase();
+      if (!s){
+        state.filteredEvents = [...state.events];
+        return;
+      }
+      state.filteredEvents = state.events.filter(ev => {
+        const hay = `${ev.title} ${ev.description||""}`.toLowerCase();
+        return hay.includes(s);
+      });
+    }
+
+    function renderLists(){
+      const today = startOfDay(new Date());
+
+      const nowEvents = state.filteredEvents
+        .filter(ev => isOngoing(ev, today))
+        .sort((a,b) => a.title.localeCompare(b.title));
+
+      const upcoming = state.filteredEvents
+        .filter(ev => isUpcoming(ev, today, 60))
+        .sort((a,b) => parseISODate(a.startDate) - parseISODate(b.startDate) || a.title.localeCompare(b.title));
+
+      const nowEl = $("listNow");
+      const upEl = $("listUpcoming");
+      nowEl.innerHTML = "";
+      upEl.innerHTML = "";
+
+      if (!nowEvents.length){
+        nowEl.innerHTML = `<div class="meta">Inga pågående events hittades i vald datamängd/sökning.</div>`;
+      } else {
+        nowEvents.forEach(ev => {
+          const s = parseISODate(ev.startDate);
+          const e = parseISODate(ev.endDate);
+          const left = daysBetween(today, e);
+          const line = left === 0 ? "Slutar idag" : `Slutar om ${left} dag(ar)`;
+
+          const item = document.createElement("div");
+          item.className = "item";
+          item.innerHTML = `
+            <div class="dot"></div>
+            <div>
+              <h3>${ev.title}</h3>
+              <div class="meta">${fmtDateSV(s)} – ${fmtDateSV(e)} • ${line}</div>
+            </div>
+          `;
+          item.addEventListener("click", () => openModal(ev, today));
+          nowEl.appendChild(item);
+        });
+      }
+
+      if (!upcoming.length){
+        upEl.innerHTML = `<div class="meta">Inga kommande events inom 60 dagar hittades i vald datamängd/sökning.</div>`;
+      } else {
+        upcoming.forEach(ev => {
+          const s = parseISODate(ev.startDate);
+          const e = parseISODate(ev.endDate);
+          const until = daysBetween(today, s);
+          const line = until === 0 ? "Startar idag" : `Startar om ${until} dag(ar)`;
+
+          const item = document.createElement("div");
+          item.className = "item";
+          item.innerHTML = `
+            <div class="dot"></div>
+            <div>
+              <h3>${ev.title}</h3>
+              <div class="meta">${fmtDateSV(s)} – ${fmtDateSV(e)} • ${line}</div>
+            </div>
+          `;
+          item.addEventListener("click", () => openModal(ev, today));
+          upEl.appendChild(item);
+        });
+      }
+    }
+
+    function renderCalendar(){
+      const y = state.viewYear;
+      const mIdx = state.viewMonthIndex;
+      const title = new Intl.DateTimeFormat("sv-SE", { month:"long", year:"numeric" }).format(new Date(y, mIdx, 1));
+      $("calTitle").textContent = title.charAt(0).toUpperCase() + title.slice(1);
+
+      const grid = $("calGrid");
+      grid.innerHTML = "";
+
+      // Monday-first offset
+      const first = new Date(y, mIdx, 1);
+      const last = new Date(y, mIdx + 1, 0);
+      const firstDow = (first.getDay() + 6) % 7; // convert Sunday=0 to Sunday=6 (Mon=0)
+      const totalDays = last.getDate();
+
+      // We will build 6 rows (42 cells) like Tibia.com.
+      const cellCount = 42;
+
+      const today = startOfDay(new Date());
+
+      // Map events active per date for this 6-week grid range
+      const gridStart = new Date(y, mIdx, 1 - firstDow);
+      const gridEnd = new Date(y, mIdx, 1 - firstDow + (cellCount - 1));
+
+      const eventsForGrid = state.filteredEvents.filter(ev => {
+        const s = parseISODate(ev.startDate);
+        const e = parseISODate(ev.endDate);
+        return s <= gridEnd && e >= gridStart;
+      });
+
+      for (let i=0;i<cellCount;i++){
+        const d = new Date(gridStart);
+        d.setDate(gridStart.getDate() + i);
+
+        const cell = document.createElement("div");
+        cell.className = "cell";
+        const inMonth = (d.getMonth() === mIdx);
+        if (!inMonth) cell.classList.add("outmonth");
+
+        const dayNum = d.getDate();
+
+        const iso = toISODateLocal(d);
+
+        const active = eventsForGrid.filter(ev => {
+          const s = parseISODate(ev.startDate);
+          const e = parseISODate(ev.endDate);
+          return s <= d && d <= e;
+        }).sort((a,b) => a.title.localeCompare(b.title));
+
+        const bars = document.createElement("div");
+        bars.className = "bars";
+
+        const showMax = 3;
+        const shown = active.slice(0, showMax);
+
+        shown.forEach(ev => {
+          const b = document.createElement("div");
+          b.className = "bar";
+          applyBarColor(b, ev);
+          b.title = ev.title;
+          b.textContent = ev.title;
+          b.addEventListener("click", () => openModal(ev, today));
+          bars.appendChild(b);
+        });
+
+        if (active.length > showMax){
+          const more = document.createElement("div");
+          more.className = "more";
+          more.textContent = `+${active.length - showMax} till…`;
+          more.addEventListener("click", () => {
+            // show a pseudo-event in modal by listing all titles for that day
+            const fake = {
+              id: `day-${iso}`,
+              title: `Events ${iso}`,
+              description: active.map(e => `• ${e.title} (${e.startDate} – ${e.endDate})`).join("\n"),
+              startDate: iso,
+              endDate: iso,
+              category: "misc",
+              color: null,
+              tibiaUrl: "https://www.tibia.com/news/?subtopic=eventcalendar"
+            };
+            openModal(fake, today);
+          });
+          bars.appendChild(more);
+        }
+
+        cell.innerHTML = `<div class="daynum">${dayNum}</div>`;
+        cell.appendChild(bars);
+
+        grid.appendChild(cell);
+      }
+    }
+
+    function gotoToday(){
+      const t = new Date();
+      state.viewYear = t.getFullYear();
+      state.viewMonthIndex = t.getMonth();
+      renderLists();
+      renderCalendar();
+    }
+
+    function shiftMonth(delta){
+      const d = new Date(state.viewYear, state.viewMonthIndex, 1);
+      d.setMonth(d.getMonth() + delta);
+      state.viewYear = d.getFullYear();
+      state.viewMonthIndex = d.getMonth();
+      renderLists();
+      renderCalendar();
+    }
+
+    async function load(){
+      // If fetch fails, we keep UI up but show empty lists/calendar.
+      try{
+        const res = await fetch(EVENTS_JSON_URL, { cache: "no-store" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+
+        state.data = data;
+        state.events = Array.isArray(data.events) ? data.events : [];
+        state.filteredEvents = [...state.events];
+
+        setTimePills(data.meta || {});
+      }catch(e){
+        setTimePills({ generatedAt: "Kunde inte läsa events.json" });
+        state.data = { meta:{}, events:[] };
+        state.events = [];
+        state.filteredEvents = [];
+      }
+
+      const t = new Date();
+      state.viewYear = t.getFullYear();
+      state.viewMonthIndex = t.getMonth();
+
+      renderLists();
+      renderCalendar();
+    }
+
+    // -------------------------
+    // Events
+    // -------------------------
+    $("modalClose").addEventListener("click", closeModal);
+    $("modalBackdrop").addEventListener("click", (e) => { if (e.target === $("modalBackdrop")) closeModal(); });
+
+    $("search").addEventListener("input", (e) => {
+      filterEvents(e.target.value);
+      renderLists();
+      renderCalendar();
+    });
+
+    $("btnToday").addEventListener("click", gotoToday);
+    $("prevMonth").addEventListener("click", () => shiftMonth(-1));
+    $("nextMonth").addEventListener("click", () => shiftMonth(1));
+
+    load();
+  </script>
+</body>
+</html>
