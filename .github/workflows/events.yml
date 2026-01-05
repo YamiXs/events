@@ -1,4 +1,4 @@
-name: Build TibiaSweden events.json
+name: Build TibiaSweden Events JSON
 
 on:
   push:
@@ -17,12 +17,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Debug tree
+        run: |
+          pwd
+          ls -la
+          echo "---- scripts ----"
+          ls -la scripts || true
+          echo "---- requirements.txt ----"
+          cat requirements.txt || true
+          python --version
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install deps
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
